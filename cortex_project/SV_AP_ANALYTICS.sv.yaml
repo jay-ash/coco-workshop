@@ -38,7 +38,7 @@ tables:
         expr: INVOICE_NUMBER
         data_type: VARCHAR
       - name: VENDOR_KEY
-        synonyms: [vendor, supplier, payee, vendor identifier]
+        synonyms: [vendor key, unique vendor, distinct vendor]
         description: >-
           Unique vendor identifier across all systems, formed from source system and vendor ID. Use this
           to count or rank distinct vendors. The same real-world supplier in two systems appears as two keys.
@@ -95,25 +95,13 @@ tables:
         expr: PO_NUMBER
         data_type: VARCHAR
       - name: LINE_DESCRIPTION
-        synonyms: [memo, description, invoice description]
+        synonyms: [memo, invoice description, line description]
         description: Free-text description of the invoice; may be in Dutch for Baan invoices.
         expr: LINE_DESCRIPTION
         data_type: VARCHAR
-      - name: PAYMENT_TERMS_RAW
-        description: Payment terms exactly as received from the source system (e.g. N30, Net 30). Prefer PAYMENT_TERMS.
-        expr: PAYMENT_TERMS_RAW
-        data_type: VARCHAR
-      - name: APPROVAL_STATUS_RAW
-        description: Approval status exactly as received from the source system (e.g. VALIDATED, POSTED, In Review). Prefer APPROVAL_STATUS.
-        expr: APPROVAL_STATUS_RAW
-        data_type: VARCHAR
-      - name: COMPANY_CODE
-        description: Company or organization code; populated for SAP and Oracle invoices only.
-        expr: COMPANY_CODE
-        data_type: VARCHAR
     time_dimensions:
       - name: INVOICE_DATE
-        synonyms: [invoice date, date, billing date, month]
+        synonyms: [invoice date, billing date, date]
         description: >-
           Date on the invoice. The default date for spend, volume and trend questions such as
           "last 12 months" or "by month".
@@ -137,16 +125,9 @@ tables:
         data_type: NUMBER
     metrics:
       - name: TOTAL_INVOICE_AMOUNT
-        synonyms: [AP spend, total spend, spend, total invoiced, invoice amount]
+        synonyms: [AP spend, total spend, spend, total invoiced, unpaid amount, outstanding amount, open AP]
         description: >-
-          Total invoiced amount in original currency. Always break down by currency code; never present one
-          total across currencies.
-        expr: SUM(INVOICE_AMOUNT)
-      - name: OUTSTANDING_INVOICE_AMOUNT
-        synonyms: [unpaid amount, unpaid invoice amount, open amount, open AP, outstanding balance]
-        description: >-
-          Amount of invoices treated as unpaid. Payment data is not available, so every invoice is treated as
-          unpaid and this equals the total invoiced amount. Break down by currency code.
+          Total invoiced amount in original currency; always break down by currency code. There is no payment data, so for unpaid or outstanding questions this total is used with every invoice treated as unpaid, and the answer must say so.
         expr: SUM(INVOICE_AMOUNT)
       - name: PENDING_APPROVAL_AMOUNT
         synonyms: [amount awaiting approval, pending amount]
@@ -159,7 +140,7 @@ tables:
       - name: VENDOR_COUNT
         synonyms: [number of vendors, supplier count]
         description: Number of distinct vendors, counting a supplier separately in each source system.
-        expr: COUNT(DISTINCT SOURCE_SYSTEM || ':' || VENDOR_ID)
+        expr: COUNT(DISTINCT VENDOR_KEY)
       - name: AVERAGE_INVOICE_AMOUNT
         synonyms: [average invoice value, mean invoice amount]
         description: Average invoice amount in original currency. Break down by currency code.
@@ -194,11 +175,5 @@ verified_queries:
     question: Which invoices are due in the 30 days after the latest invoice date?
     sql: WITH bounds AS (SELECT MAX(invoice_date) AS max_date FROM ap_invoices) SELECT source_system, invoice_number, vendor_name, due_date, invoice_amount, currency_code, approval_status FROM ap_invoices CROSS JOIN bounds WHERE due_date >= bounds.max_date AND due_date < DATEADD(DAY, 30, bounds.max_date) ORDER BY due_date, currency_code
     verified_at: 1795087821
-custom_instructions: >-
-  Amounts are in the invoice's original currency and must never be summed across currencies: always include
-  CURRENCY_CODE in the grouping of any amount metric and tell the user amounts are not FX-converted.
-  There is no payment status; if asked about unpaid or outstanding invoices, use OUTSTANDING_INVOICE_AMOUNT and
-  state that all invoices are treated as unpaid because payment data is unavailable. Treat "business unit" as
-  COST_CENTER. For relative periods such as "last 12 months", anchor on the latest INVOICE_DATE in the data
-  rather than today's date, and state the date range used. Use VENDOR_KEY to rank or count distinct vendors and
-  show VENDOR_NAME alongside it. Compare GL_ACCOUNT and COST_CENTER only within a single SOURCE_SYSTEM.
+module_custom_instructions:
+  sql_generation: Always include CURRENCY_CODE in the grouping of any amount metric and state that amounts are not FX-converted. For relative periods such as "last 12 months", anchor on the latest INVOICE_DATE in the data rather than today's date, and state the date range used.
